@@ -18,8 +18,11 @@ class Config:
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
     # Retrieval knobs - these are what the config sweep varies.
-    chunk_size: int = int(os.getenv("CHUNK_SIZE", "512"))
-    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "64"))
+    # chunk_size is in TOKENS, measured with the embedding model's own tokenizer.
+    # Hard ceiling: all-MiniLM-L6-v2 truncates at 256 tokens. Going above that
+    # does not embed more text, it silently discards the tail.
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "256"))
+    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "32"))
     top_k: int = int(os.getenv("TOP_K", "5"))
 
     # Safety limits for LLM-generated SQL.

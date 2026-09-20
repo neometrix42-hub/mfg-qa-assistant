@@ -367,9 +367,15 @@ Write 50 questions. Split roughly 20 document / 20 data / 10 hybrid.
 
 Run the full golden set across a grid:
 
-| chunk_size | overlap | top_k |
+| chunk_size (tokens) | overlap | top_k |
 |---|---|---|
-| 256 / 512 / 1024 | 0 / 15% | 3 / 5 / 10 |
+| 128 / 192 / 256 | 0 / 32 | 3 / 5 / 10 |
+
+> **Why the ceiling is 256:** `all-MiniLM-L6-v2` truncates input at 256 tokens.
+> A 512-token chunk does not embed more text — the tail is silently discarded,
+> while the full chunk still reaches Claude. That failure is invisible in the
+> output and surfaces only as unexplained bad recall. Stay at or below 256, or
+> switch embedding models and update `vector(384)` in the schema to match.
 
 Write results to `evals/results/<timestamp>.json` and emit a markdown table. **Put that table at the top of your README.**
 

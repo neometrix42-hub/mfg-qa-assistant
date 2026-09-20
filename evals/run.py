@@ -21,9 +21,15 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 GOLDEN_SET = Path(__file__).resolve().parent / "golden_set.yaml"
 
 # The grid. 3 chunk sizes x 2 overlaps x 3 top_k = 18 configs; trim to ~6 for cost.
+#
+# chunk_size is in TOKENS and caps at 256 because all-MiniLM-L6-v2 truncates
+# there. Sweeping 512/1024 with this model measures nothing useful: the chunk
+# text still gets returned to Claude, but only its first 256 tokens influenced
+# the embedding that retrieved it. Either stay at/below 256, or switch to a
+# longer-context embedding model and update vector(384) in the schema to match.
 SWEEP = {
-    "chunk_size": [256, 512, 1024],
-    "chunk_overlap": [0, 64],
+    "chunk_size": [128, 192, 256],
+    "chunk_overlap": [0, 32],
     "top_k": [3, 5, 10],
 }
 

@@ -38,7 +38,17 @@ def chunk_document(path: Path, chunk_size: int | None = None,
     sections (sop_calibration#3.2). If chunks align to sections, recall@k is
     measurable against a real ground truth. If they do not, your metric is mush.
 
-    Measure chunk_size 256 / 512 / 1024 and overlap 0 / 15% in the sweep. Do not
+    IMPORTANT - the 256-token ceiling:
+      all-MiniLM-L6-v2 truncates its input at 256 tokens. A 512-token chunk does
+      not produce a "richer" embedding; the second half is silently discarded.
+      The chunk text is still handed to Claude in full, so the failure is
+      invisible in the output and only shows up as unexplained bad recall.
+
+      So: measure chunk_size in TOKENS with the model's own tokenizer, and sweep
+      128 / 192 / 256. If you want to test larger chunks, switch to a
+      longer-context embedding model and change vector(384) in the schema.
+
+    Measure chunk_size 128 / 192 / 256 and overlap 0 / 32 in the sweep. Do not
     guess - report the numbers.
     """
     raise NotImplementedError("Week 3: implement chunking")
