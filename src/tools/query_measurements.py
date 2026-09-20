@@ -12,6 +12,7 @@ Three independent layers:
 
 import re
 
+from src import runtime
 from src.config import cfg
 from src.db import connect_readonly
 
@@ -74,6 +75,9 @@ def run_readonly_sql(sql: str) -> str:
         safe_sql = validate(sql)
     except UnsafeSQL as exc:
         return f"SQL rejected: {exc}\nRewrite it as a single read-only SELECT."
+
+    # The eval harness re-executes this to compare against reference_sql.
+    runtime.record_sql(safe_sql)
 
     try:
         with connect_readonly() as conn:

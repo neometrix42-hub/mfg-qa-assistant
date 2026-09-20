@@ -7,7 +7,7 @@ up Claude. Retrieval is where RAG projects die.
 
 from dataclasses import dataclass
 
-from src.config import cfg
+from src import runtime
 from src.db import connect
 from src.ingest.embed import embed_text
 
@@ -40,14 +40,22 @@ class Hit:
 
 
 def search_docs(query: str, top_k: int | None = None) -> list[Hit]:
-    """Return the top_k chunks most similar to `query`."""
-    k = top_k or cfg.top_k
+    """Return the top_k chunks most similar to `query`.
+
+    Retrieval depth is an engineering decision measured by the eval sweep, not
+    something the model should choose per call - which is why top_k is not
+    exposed on the tool schema in agent.py.
+    """
+    k = top_k or runtime.top_k()
     vec = embed_text(query)
 
     with connect() as conn:
         rows = conn.execute(SEARCH_SQL, {"vec": vec, "k": k}).fetchall()
 
-    return [Hit(*row) for row in rows]
+    hits = [Hit(*row) for row in rows]
+    # The eval harness needs rank order to compute recall@k and MRR.
+    runtime.record_retrieval([h.citation for h in hits], [h.content for h in hits])
+    return hits
 
 
 if __name__ == "__main__":

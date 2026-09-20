@@ -15,7 +15,16 @@ class Config:
     readonly_database_url: str = os.getenv("READONLY_DATABASE_URL", "")
 
     claude_model: str = os.getenv("CLAUDE_MODEL", "claude-opus-5")
+    # The faithfulness judge runs once per eval case, so a full sweep calls it
+    # hundreds of times. Setting JUDGE_MODEL=claude-haiku-4-5 cuts that cost
+    # substantially; it is your call whether the cheaper judge is good enough,
+    # and the eval harness records the judge model in every results file.
+    judge_model: str = os.getenv("JUDGE_MODEL", "claude-opus-5")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+
+    # USD per million tokens, for the cost column in eval results.
+    input_price_per_mtok: float = float(os.getenv("INPUT_PRICE_PER_MTOK", "5.0"))
+    output_price_per_mtok: float = float(os.getenv("OUTPUT_PRICE_PER_MTOK", "25.0"))
 
     # Retrieval knobs - these are what the config sweep varies.
     # chunk_size is in TOKENS, measured with the embedding model's own tokenizer.

@@ -1,12 +1,8 @@
 """The agent: Claude with two tools, deciding which to call.
 
-This is the core of the project. The tool-calling loop is handled by the SDK's
-tool runner, so all you write are the tool functions themselves.
-
-Why tool calling instead of a hand-written if/else router? Two reasons, and you
-should be able to say both out loud:
-  1. Hybrid questions ("part P-4417 failed flatness, what does the SOP say?")
-     work without you enumerating every combination.
+Why tool calling instead of a hand-written if/else router:
+  1. Hybrid questions ("P-4417 failed flatness, what does the SOP say?") work
+     without enumerating every combination.
   2. Adding a third tool later costs one function, not a rewritten classifier.
 """
 
@@ -15,6 +11,7 @@ import time
 import anthropic
 from anthropic import beta_tool
 
+from src import runtime
 from src.config import cfg
 from src.tools.query_measurements import run_readonly_sql
 from src.tools.search_documents import search_docs
@@ -37,7 +34,7 @@ Rules:
 
 
 @beta_tool
-def search_documents(query: str, top_k: int = 5) -> str:
+def search_documents(query: str) -> str:
     """Search quality procedures, SOPs and standards by meaning.
 
     Use this for questions about how something should be done, required
@@ -45,9 +42,8 @@ def search_documents(query: str, top_k: int = 5) -> str:
 
     Args:
         query: What to look for, in natural language.
-        top_k: How many chunks to return.
     """
-    hits = search_docs(query, top_k)
+    hits = search_docs(query)
     if not hits:
         return "No relevant documents found."
     return "\n\n".join(f"[{h.doc_title} section {h.section}]\n{h.content}" for h in hits)
@@ -69,6 +65,8 @@ def query_measurements(sql: str) -> str:
     Notes:
       - in_spec is already computed. Use it instead of recomputing tolerances.
       - deviation = actual - nominal, already computed.
+      - Form characteristics (flatness, position) are unilateral: nominal 0,
+        lower_tol 0, upper_tol positive.
 
     Args:
         sql: A single SELECT statement. No INSERT/UPDATE/DELETE/DDL.
@@ -77,53 +75,75 @@ def query_measurements(sql: str) -> str:
 
 
 def ask(question: str, log: bool = True) -> dict:
-    """Ask a question. Returns the answer plus metadata for the eval harness.
-
-    TODO (week 4):
-      1. Build the runner (skeleton below).
-      2. Iterate it, keeping the LAST message.
-      3. Collect which tools were called and any generated SQL - the eval
-         harness and request_log both need this, so capture it here rather
-         than trying to reconstruct it later.
-      4. If log=True, INSERT a row into request_log.
-    """
+    """Ask a question. Returns the answer plus everything the evals need."""
     started = time.monotonic()
 
-    runner = client.beta.messages.tool_runner(
-        model=cfg.claude_model,
-        max_tokens=16000,
-        system=SYSTEM,
-        tools=[search_documents, query_measurements],
-        messages=[{"role": "user", "content": question}],
-    )
+    with runtime.tracing() as trace:
+        runner = client.beta.messages.tool_runner(
+            model=cfg.claude_model,
+            max_tokens=16000,
+            system=SYSTEM,
+            tools=[search_documents, query_measurements],
+            messages=[{"role": "user", "content": question}],
+        )
 
-    last = None
-    tools_called: list[str] = []
-    for message in runner:
-        last = message
-        for block in message.content:
-            if block.type == "tool_use":
-                tools_called.append(block.name)
+        last = None
+        input_tokens = output_tokens = 0
+        for message in runner:
+            last = message
+            # Usage is per-request; the loop may make several.
+            input_tokens += message.usage.input_tokens
+            output_tokens += message.usage.output_tokens
 
     if last is None:
         raise RuntimeError("Tool runner produced no messages")
 
-    answer = "".join(b.text for b in last.content if b.type == "text")
-
-    return {
+    result = {
         "question": question,
-        "answer": answer,
-        "tools_called": tools_called,
+        "answer": "".join(b.text for b in last.content if b.type == "text"),
+        "tools_called": trace.tools_called,
+        "retrieved": trace.retrieved,
+        "contexts": trace.contexts,
+        "sql": trace.sql,
         "latency_ms": int((time.monotonic() - started) * 1000),
-        "input_tokens": last.usage.input_tokens,
-        "output_tokens": last.usage.output_tokens,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
     }
+
+    if log:
+        _log(result)
+    return result
+
+
+def _log(result: dict) -> None:
+    """Append to request_log. Never let logging break a request."""
+    from src.db import connect
+
+    try:
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO request_log (question, tools_called, generated_sql, answer,"
+                " input_tokens, output_tokens, latency_ms) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    result["question"],
+                    result["tools_called"],
+                    "\n---\n".join(result["sql"]) or None,
+                    result["answer"],
+                    result["input_tokens"],
+                    result["output_tokens"],
+                    result["latency_ms"],
+                ),
+            )
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001 - observability must not break the app
+        print(f"[warn] request_log write failed: {exc}")
 
 
 if __name__ == "__main__":
     import sys
 
     q = " ".join(sys.argv[1:]) or "How often must the CMM be calibrated?"
-    result = ask(q)
-    print(result["answer"])
-    print(f"\n[tools: {result['tools_called']} | {result['latency_ms']}ms]")
+    out = ask(q)
+    print(out["answer"])
+    print(f"\n[tools: {out['tools_called']} | {out['latency_ms']}ms "
+          f"| {out['input_tokens']}in/{out['output_tokens']}out]")

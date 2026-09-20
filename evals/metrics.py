@@ -1,64 +1,119 @@
 """Eval metrics.
 
-YOU WRITE THESE. They are small, pure functions - easy to unit test, and worth
-testing, because a bug here silently invalidates every number in your README.
+Small pure functions on purpose - easy to unit test, and worth testing, because
+a bug here silently invalidates every number in your README.
 """
+
+from decimal import Decimal
+
+JUDGE_PROMPT = """You are grading whether an answer is supported by the context it was given.
+
+CONTEXT:
+{context}
+
+ANSWER:
+{answer}
+
+Is every factual claim in the ANSWER supported by the CONTEXT?
+Reply with exactly one line:
+SUPPORTED: <one sentence why>
+or
+UNSUPPORTED: <one sentence naming the unsupported claim>"""
 
 
 def recall_at_k(retrieved: list[str], expected: list[str], k: int) -> float:
-    """Fraction of expected citations present in the top k retrieved.
-
-    TODO: intersect expected with retrieved[:k], divide by len(expected).
-    Return 1.0 when expected is empty (nothing to find = nothing missed).
-    """
-    raise NotImplementedError
+    """Fraction of expected citations present in the top k retrieved."""
+    if not expected:
+        return 1.0  # nothing to find means nothing missed
+    top = set(retrieved[:k])
+    return sum(1 for e in expected if e in top) / len(expected)
 
 
 def mrr(retrieved: list[str], expected: list[str]) -> float:
-    """Mean reciprocal rank of the FIRST correct citation.
+    """Reciprocal rank of the FIRST correct citation, 0.0 if none.
 
-    TODO: find the lowest index i where retrieved[i] is in expected,
-    return 1/(i+1). Return 0.0 if none match.
-
-    Why both this and recall@k: recall says "did we find it", MRR says "how
-    far down the list". A system with good recall but bad MRR is stuffing the
-    right answer in at position 9, where the model may ignore it.
+    Recall says "did we find it"; MRR says "how far down". A system with good
+    recall but poor MRR is burying the right chunk at position 9, where the
+    model may well ignore it.
     """
-    raise NotImplementedError
+    if not expected:
+        return 1.0
+    wanted = set(expected)
+    for index, citation in enumerate(retrieved):
+        if citation in wanted:
+            return 1.0 / (index + 1)
+    return 0.0
 
 
-def result_match(actual_rows: list[tuple], expected_rows: list[tuple]) -> bool:
+def _normalise(value):
+    """Make Decimal('3'), 3 and 3.0 compare equal."""
+    if isinstance(value, (Decimal, float, int)) and not isinstance(value, bool):
+        return round(float(value), 6)
+    if value is None:
+        return None
+    return str(value)
+
+
+def result_match(actual_rows, expected_rows) -> bool:
     """True if two SQL result sets are equivalent.
 
-    TODO: compare as sorted lists of tuples - row ORDER should not matter
-    unless the question asked for ordering. Normalise numeric types first
-    (Decimal('3') and 3 must compare equal, or you will chase phantom failures).
+    Row order is ignored - unless the question asked for ordering, two correct
+    queries may legitimately return rows in different orders.
     """
-    raise NotImplementedError
+    if actual_rows is None or expected_rows is None:
+        return False
+    actual = sorted(tuple(_normalise(v) for v in row) for row in actual_rows)
+    expected = sorted(tuple(_normalise(v) for v in row) for row in expected_rows)
+    return actual == expected
 
 
 def contains_rate(answer: str, must_contain: list[str]) -> float:
-    """Fraction of required strings present in the answer (case-insensitive).
-
-    TODO: straightforward. Return 1.0 when must_contain is empty.
-    """
-    raise NotImplementedError
+    """Fraction of required strings present in the answer, case-insensitive."""
+    if not must_contain:
+        return 1.0
+    low = answer.lower()
+    return sum(1 for s in must_contain if s.lower() in low) / len(must_contain)
 
 
 def faithfulness(answer: str, context: str, client, model: str) -> tuple[bool, str]:
     """LLM-as-judge: is `answer` supported by `context`?
 
-    TODO: one Claude call. Ask for a verdict plus one sentence of reasoning,
-    and LOG THE REASONING - you will be asked about judge reliability.
+    Returns (verdict, reasoning). The reasoning is logged deliberately - you
+    will be asked about judge reliability, and being able to show what the
+    judge actually said is the difference between a real answer and a shrug.
 
-    Known limitation, and the right thing to say in an interview: an LLM judge
-    is weak and correlated with the model being judged. That is exactly why it
-    sits alongside exact-match checks (contains_rate, result_match) rather than
+    Known limitation, and the right thing to say out loud: an LLM judge is weak
+    and correlated with the model being judged. That is exactly why it sits
+    alongside exact-match checks (contains_rate, result_match) rather than
     replacing them.
     """
-    raise NotImplementedError
+    if not context.strip():
+        return False, "No context was retrieved, so nothing supports the answer."
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=256,
+        messages=[{
+            "role": "user",
+            "content": JUDGE_PROMPT.format(context=context[:20000], answer=answer),
+        }],
+    )
+    text = "".join(b.text for b in response.content if b.type == "text").strip()
+    return text.upper().startswith("SUPPORTED"), text
 
 
 def percentile(values: list[float], p: float) -> float:
-    """p50 / p95 latency. TODO: sort, index at p * (n-1), interpolate."""
-    raise NotImplementedError
+    """Linear-interpolated percentile. p is a fraction, e.g. 0.95."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    position = p * (len(ordered) - 1)
+    low = int(position)
+    high = min(low + 1, len(ordered) - 1)
+    return float(ordered[low] + (ordered[high] - ordered[low]) * (position - low))
+
+
+def mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0

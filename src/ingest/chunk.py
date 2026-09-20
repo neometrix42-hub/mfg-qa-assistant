@@ -236,21 +236,28 @@ def chunk_all(
     return chunks
 
 
-def build_index() -> None:
-    """Chunk, embed and load doc_chunks. Destructive: replaces existing rows."""
-    from src.db import connect
-    from src.ingest.embed import embed_batch, max_input_tokens
+def build_index(chunk_size: int | None = None, overlap: int | None = None) -> None:
+    """Chunk, embed and load doc_chunks. Destructive: replaces existing rows.
 
-    chunks = chunk_all()
-    if not chunks:
-        raise RuntimeError(f"No documents found in {DOCS_DIR}")
+    The eval sweep calls this once per configuration - chunking changes the
+    chunks, so the embeddings must be rebuilt or every config scores against
+    whatever index happened to be loaded last.
+    """
+    from src.db import connect
+    from src.ingest.embed import count_tokens, embed_batch, max_input_tokens
+
+    size = chunk_size or cfg.chunk_size
 
     ceiling = max_input_tokens()
-    if cfg.chunk_size > ceiling:
+    if size > ceiling:
         raise ValueError(
-            f"CHUNK_SIZE={cfg.chunk_size} exceeds the embedding model's {ceiling}-token "
-            f"limit. Chunks would be silently truncated before embedding."
+            f"chunk_size={size} exceeds the embedding model's {ceiling}-token limit. "
+            f"Chunks would be silently truncated before embedding."
         )
+
+    chunks = chunk_all(chunk_size=size, overlap=overlap)
+    if not chunks:
+        raise RuntimeError(f"No documents found in {DOCS_DIR}")
 
     print(f"Embedding {len(chunks)} chunks from {len(list(DOCS_DIR.glob('*.md')))} documents...")
     vectors = embed_batch([c.content for c in chunks])
@@ -262,7 +269,7 @@ def build_index() -> None:
                 "INSERT INTO doc_chunks (doc_id, doc_title, section, content, token_count,"
                 " embedding) VALUES (%s, %s, %s, %s, %s, %s)",
                 [
-                    (c.doc_id, c.doc_title, c.section, c.content, None, v)
+                    (c.doc_id, c.doc_title, c.section, c.content, count_tokens(c.content), v)
                     for c, v in zip(chunks, vectors, strict=True)
                 ],
             )

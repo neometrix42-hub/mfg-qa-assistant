@@ -1,19 +1,25 @@
-# Golden set - the ground truth your whole project is measured against.
+# Golden set - the ground truth the whole project is measured against.
 #
 # TARGET: 50 questions, roughly 20 doc / 20 data / 10 hybrid.
-# Three examples below show the format. The other 47 are yours to write.
+# 22 are written below. The remaining 28 are yours - and writing them is the
+# single highest-value hour you will spend on this project.
 #
-# Write these BEFORE you tune anything. A golden set written after the fact
-# gets unconsciously shaped to what the system already does well, and then it
-# measures nothing. Write them from the SOPs and the data, not from the output.
+# Write questions from the SOPs and the data, never from the system's output.
+# A golden set written after the fact gets unconsciously shaped to what the
+# system already does well, and then it measures nothing.
 #
 # Fields:
-#   id               stable identifier, used in results tables
+#   id               stable identifier, used in the results table
 #   question         exactly what a user would type
 #   type             doc | data | hybrid
 #   expected_chunks  [doc_id#section] - ground truth for recall@k and MRR
 #   reference_sql    correct SQL; the harness runs it and compares result sets
 #   must_contain     strings that MUST appear in the final answer
+#
+# Run `python -m evals.run --verify` to check every reference_sql executes.
+# It calls no API and costs nothing.
+
+# ============================================================ DOCUMENT (12)
 
 - id: doc_001
   question: "How often must a CMM be calibrated for production inspection?"
@@ -21,17 +27,143 @@
   expected_chunks: ["sop_calibration#3.2"]
   must_contain: ["12 months"]
 
+- id: doc_002
+  question: "How frequently is interim verification with a ball bar required?"
+  type: doc
+  expected_chunks: ["sop_calibration#3.2"]
+  must_contain: ["3 months"]
+
+- id: doc_003
+  question: "How long do we have to keep CMM calibration certificates?"
+  type: doc
+  expected_chunks: ["sop_calibration#4"]
+  must_contain: ["3 years"]
+
+- id: doc_004
+  question: "What happens to a CMM that fails its acceptance criteria?"
+  type: doc
+  expected_chunks: ["sop_calibration#3.3"]
+  must_contain: ["out of service"]
+
+- id: doc_005
+  question: "When must a full First Article Inspection be performed?"
+  type: doc
+  expected_chunks: ["sop_first_article#2"]
+  must_contain: ["drawing revision"]
+
+- id: doc_006
+  question: "How many parts is the minimum for an FAI sample?"
+  type: doc
+  expected_chunks: ["sop_first_article#3.1"]
+  must_contain: ["3 consecutive"]
+
+- id: doc_007
+  question: "Can an FAI be conditionally accepted if one dimension is out of tolerance?"
+  type: doc
+  expected_chunks: ["sop_first_article#4"]
+  must_contain: ["not permitted"]
+
+- id: doc_008
+  question: "How quickly must a non-conformance report be raised after segregation?"
+  type: doc
+  expected_chunks: ["sop_nonconformance#3.1"]
+  must_contain: ["2 working days"]
+
+- id: doc_009
+  question: "What are the possible dispositions for non-conforming material?"
+  type: doc
+  expected_chunks: ["sop_nonconformance#4"]
+  must_contain: ["rework", "scrap"]
+
+- id: doc_010
+  question: "If non-conforming material has already been shipped, how fast must it be escalated?"
+  type: doc
+  expected_chunks: ["sop_nonconformance#2.2"]
+  must_contain: ["24 hours"]
+
+- id: doc_011
+  question: "When does a recurring non-conformance require formal root cause analysis?"
+  type: doc
+  expected_chunks: ["sop_nonconformance#3.2"]
+  must_contain: ["three", "90"]
+
+# Near-duplicate terminology - the system must not confuse these two.
+- id: doc_012
+  question: "Is prototype tooling acceptable for producing FAI samples?"
+  type: doc
+  expected_chunks: ["sop_first_article#3.1"]
+  must_contain: ["not acceptable"]
+
+# ================================================================ DATA (7)
+
 - id: data_001
-  question: "How many measurements failed flatness tolerance in March 2026?"
+  question: "How many measurements were recorded in total?"
+  type: data
+  reference_sql: "SELECT COUNT(*) FROM measurements;"
+  must_contain: []
+
+- id: data_002
+  question: "How many measurements failed their tolerance in March 2026?"
   type: data
   reference_sql: >
     SELECT COUNT(*) FROM measurements m
     JOIN inspection_runs r USING (run_id)
-    WHERE m.characteristic = 'flatness'
-      AND m.in_spec = false
+    WHERE m.in_spec = false
       AND r.inspected_at >= '2026-03-01'
       AND r.inspected_at <  '2026-04-01';
   must_contain: []
+
+- id: data_003
+  question: "Which machine has the highest proportion of out-of-tolerance measurements?"
+  type: data
+  reference_sql: >
+    SELECT r.machine_id
+    FROM measurements m JOIN inspection_runs r USING (run_id)
+    GROUP BY r.machine_id
+    ORDER BY COUNT(*) FILTER (WHERE NOT m.in_spec)::float / COUNT(*) DESC
+    LIMIT 1;
+  must_contain: ["ARM-01"]
+
+- id: data_004
+  question: "What is the overall out-of-tolerance rate for each characteristic?"
+  type: data
+  reference_sql: >
+    SELECT characteristic,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE NOT in_spec) / COUNT(*), 2) AS pct
+    FROM measurements GROUP BY characteristic ORDER BY characteristic;
+  must_contain: []
+
+- id: data_005
+  question: "How many flatness measurements failed on part P-4417?"
+  type: data
+  reference_sql: >
+    SELECT COUNT(*) FROM measurements m
+    JOIN inspection_runs r USING (run_id)
+    WHERE r.part_id = 'P-4417'
+      AND m.characteristic = 'flatness'
+      AND m.in_spec = false;
+  must_contain: []
+
+- id: data_006
+  question: "Which part number has the most failed measurements?"
+  type: data
+  reference_sql: >
+    SELECT p.part_number
+    FROM measurements m
+    JOIN inspection_runs r USING (run_id)
+    JOIN parts p ON p.part_id = r.part_id
+    WHERE m.in_spec = false
+    GROUP BY p.part_number ORDER BY COUNT(*) DESC LIMIT 1;
+  must_contain: []
+
+- id: data_007
+  question: "What date range does the inspection data cover?"
+  type: data
+  reference_sql: >
+    SELECT MIN(inspected_at)::date, MAX(inspected_at)::date FROM inspection_runs;
+  must_contain: ["2026"]
+
+# ============================================================== HYBRID (3)
 
 - id: hybrid_001
   question: "Part P-4417 failed a flatness check. What does our procedure require next?"
@@ -39,13 +171,50 @@
   expected_chunks: ["sop_nonconformance#2.1"]
   must_contain: ["quarantine"]
 
-# --- write 47 more below -------------------------------------------------
+# Multi-hop: needs the data to spot ARM-01, then the SOP to know what to do.
+- id: hybrid_002
+  question: >
+    One of our machines has a much higher failure rate than the others.
+    Which one, and what does the calibration procedure say we should do about it?
+  type: hybrid
+  expected_chunks: ["sop_calibration#3.2"]
+  must_contain: ["ARM-01"]
+
+- id: hybrid_003
+  question: >
+    How many P-4417 measurements failed, and how long must we keep the
+    non-conformance records for them?
+  type: hybrid
+  expected_chunks: ["sop_nonconformance#5"]
+  reference_sql: >
+    SELECT COUNT(*) FROM measurements m
+    JOIN inspection_runs r USING (run_id)
+    WHERE r.part_id = 'P-4417' AND m.in_spec = false;
+  must_contain: ["7 years"]
+
+# ============================================== UNANSWERABLE - keep these (2)
+# The correct behaviour is to say so. A golden set without these cannot
+# distinguish "grounded" from "confidently wrong", and "what does it get
+# wrong?" is the interview question juniors fail.
+
+- id: unanswerable_001
+  question: "What is the surface hardness specification for part P-1001?"
+  type: doc
+  expected_chunks: []
+  must_contain: ["not"]
+
+- id: unanswerable_002
+  question: "Who approved revision C of the calibration procedure?"
+  type: doc
+  expected_chunks: []
+  must_contain: ["not"]
+
+# --- write 28 more below ---------------------------------------------------
 #
 # Deliberately include hard cases. A golden set of only easy questions produces
-# a 98% score that tells you nothing and collapses in an interview. Include:
-#   - multi-hop questions (needs two chunks to answer)
-#   - ambiguous date ranges ("last quarter")
-#   - questions the corpus genuinely CANNOT answer (correct answer: "I don't know")
-#   - near-duplicate terms (flatness vs parallelism, gauge R&R vs calibration)
-#
-# That last category is the one that makes "what does it get wrong?" answerable.
+# a 98% score that tells you nothing and collapses under questioning. Cover:
+#   - multi-hop questions needing two chunks
+#   - ambiguous date ranges ("last quarter", "recently")
+#   - near-duplicate terms (flatness vs perpendicularity, calibration vs gauge R&R)
+#   - aggregations the model must get exactly right (rates, not counts)
+#   - questions where the honest answer is "the documents do not say"
