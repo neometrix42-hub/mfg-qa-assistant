@@ -1,0 +1,119 @@
+# Manufacturing QA Assistant
+
+A question-answering system over manufacturing inspection data and quality documents.
+Claude picks between semantic search over SOPs and generated SQL over a measurements
+database, then answers with citations. Evaluated against a 50-question golden set
+across 6 retrieval configurations.
+
+> **Status: in progress.** Scaffold complete; implementation underway.
+> See [PROJECT_SPEC.md](PROJECT_SPEC.md) for the full design and build plan.
+
+---
+
+## Results
+
+<!-- REPLACE THIS SECTION WITH REAL NUMBERS FROM `python -m evals.run --sweep`.
+     Results go ABOVE architecture and setup. Numbers above the fold.
+     This table is the single most important thing in the repo. -->
+
+| config | recall@5 | MRR | sql_match | contains | faithful | p95 ms | $/query |
+|---|---|---|---|---|---|---|---|
+| _pending_ | – | – | – | – | – | – | – |
+
+Golden set: 50 questions (20 document, 20 data, 10 hybrid). See [`evals/golden_set.yaml`](evals/golden_set.yaml).
+
+---
+
+## Architecture
+
+```
+                 +----------------------+
+  user question  |   Claude (tool use)  |
+  -------------> |   claude-opus-5      |
+                 +----------+-----------+
+                            | picks one or both
+             +--------------+--------------+
+             v                             v
+    search_documents(query)      query_measurements(sql)
+             |                             |
+             v                             v
+     pgvector similarity          read-only SQL, validated
+     over doc_chunks              over parts/runs/measurements
+             |                             |
+             +--------------+--------------+
+                            v
+                grounded answer + citations
+                            |
+                            v
+                     request_log (observability)
+```
+
+Both tools hit one Postgres database. The vector store and the business data live
+together, so relational queries and semantic search share a single source of truth.
+
+**Two retrieval modes, chosen by the model.** Rather than a hand-written router,
+Claude sees two tools and decides. Hybrid questions ("part P-4417 failed flatness,
+what does the SOP require?") work without enumerating every combination.
+
+---
+
+## SQL safety
+
+LLM-generated SQL runs behind three independent layers:
+
+1. **Read-only role** — `qa_reader` holds `SELECT` on three tables only, with a 5s
+   `statement_timeout`. It physically cannot write. ([`sql/002_readonly_role.sql`](sql/002_readonly_role.sql))
+2. **Statement validation** — comments stripped, single statement enforced, `SELECT`/`WITH`
+   only, forbidden keywords rejected, `LIMIT` injected. ([`src/tools/query_measurements.py`](src/tools/query_measurements.py))
+3. **Result truncation** — row and character caps so a wide result cannot exhaust the
+   context window.
+
+Validation failures are returned to Claude as tool results rather than raised, so the
+model corrects its own SQL.
+
+---
+
+## Setup
+
+```bash
+docker compose up -d          # Postgres + pgvector, schema applied automatically
+cp .env.example .env          # then add your ANTHROPIC_API_KEY
+pip install -e ".[dev]"
+python -m src.db              # should print OK
+```
+
+Ingest:
+
+```bash
+python -m src.ingest.load_measurements    # public dataset -> parts/runs/measurements
+python -m src.ingest.chunk                # SOPs -> chunks -> embeddings -> doc_chunks
+```
+
+Run:
+
+```bash
+python -m src.agent "How often must the CMM be calibrated?"
+streamlit run src/ui.py
+```
+
+---
+
+## Data
+
+**Structured** — public manufacturing dataset (NASA C-MAPSS / UCI SECOM / Bosch
+Production Line Performance), reshaped into the inspection schema.
+
+**Documents** — the SOP corpus in `data/documents/` is **synthetic**, authored by me
+and modelled on standard industry practice from my work in metrology and dimensional
+inspection. It contains no proprietary or customer data.
+
+---
+
+## What I learned / what I'd do differently
+
+<!-- Three honest bullets, written at the end. Name a real limitation.
+     "What does it get wrong?" is the interview question juniors fail. -->
+
+- _pending_
+- _pending_
+- _pending_

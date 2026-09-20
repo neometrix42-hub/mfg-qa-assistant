@@ -1,0 +1,29 @@
+# secrets - never commit
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# data - public datasets are downloaded, not committed
+data/raw/*
+!data/raw/.gitkeep
+
+# eval output - keep the directory, commit only results you reference in the README
+evals/results/*
+!evals/results/.gitkeep
+
+# embedding model cache
+.cache/
+models/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

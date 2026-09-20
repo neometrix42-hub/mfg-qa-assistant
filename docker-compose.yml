@@ -1,0 +1,25 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: mfgqa-db
+    environment:
+      POSTGRES_DB: mfgqa
+      POSTGRES_USER: mfgqa
+      POSTGRES_PASSWORD: mfgqa_dev_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mfgqa -d mfgqa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+
+# Port 5433 on the host so this does not collide with a local Postgres on 5432.
+# Files in ./sql run automatically, in filename order, the FIRST time the volume
+# is created. To re-run them after editing:  docker compose down -v && docker compose up -d

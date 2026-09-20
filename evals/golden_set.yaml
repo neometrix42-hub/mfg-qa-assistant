@@ -1,0 +1,51 @@
+# Golden set - the ground truth your whole project is measured against.
+#
+# TARGET: 50 questions, roughly 20 doc / 20 data / 10 hybrid.
+# Three examples below show the format. The other 47 are yours to write.
+#
+# Write these BEFORE you tune anything. A golden set written after the fact
+# gets unconsciously shaped to what the system already does well, and then it
+# measures nothing. Write them from the SOPs and the data, not from the output.
+#
+# Fields:
+#   id               stable identifier, used in results tables
+#   question         exactly what a user would type
+#   type             doc | data | hybrid
+#   expected_chunks  [doc_id#section] - ground truth for recall@k and MRR
+#   reference_sql    correct SQL; the harness runs it and compares result sets
+#   must_contain     strings that MUST appear in the final answer
+
+- id: doc_001
+  question: "How often must a CMM be calibrated for production inspection?"
+  type: doc
+  expected_chunks: ["sop_calibration#3.2"]
+  must_contain: ["12 months"]
+
+- id: data_001
+  question: "How many measurements failed flatness tolerance in March 2026?"
+  type: data
+  reference_sql: >
+    SELECT COUNT(*) FROM measurements m
+    JOIN inspection_runs r USING (run_id)
+    WHERE m.characteristic = 'flatness'
+      AND m.in_spec = false
+      AND r.inspected_at >= '2026-03-01'
+      AND r.inspected_at <  '2026-04-01';
+  must_contain: []
+
+- id: hybrid_001
+  question: "Part P-4417 failed a flatness check. What does our procedure require next?"
+  type: hybrid
+  expected_chunks: ["sop_nonconformance#2.1"]
+  must_contain: ["quarantine"]
+
+# --- write 47 more below -------------------------------------------------
+#
+# Deliberately include hard cases. A golden set of only easy questions produces
+# a 98% score that tells you nothing and collapses in an interview. Include:
+#   - multi-hop questions (needs two chunks to answer)
+#   - ambiguous date ranges ("last quarter")
+#   - questions the corpus genuinely CANNOT answer (correct answer: "I don't know")
+#   - near-duplicate terms (flatness vs parallelism, gauge R&R vs calibration)
+#
+# That last category is the one that makes "what does it get wrong?" answerable.
