@@ -34,6 +34,14 @@ class Config:
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "32"))
     top_k: int = int(os.getenv("TOP_K", "5"))
 
+    # Retrieval strategy: 'vector' | 'keyword' | 'hybrid'.
+    search_mode: str = os.getenv("SEARCH_MODE", "hybrid")
+    # How many candidates each half of hybrid search contributes before fusion.
+    candidate_pool: int = int(os.getenv("CANDIDATE_POOL", "20"))
+    # Reciprocal Rank Fusion constant. 60 is the value from the original paper;
+    # results are not sensitive to it.
+    rrf_k: int = int(os.getenv("RRF_K", "60"))
+
     # Safety limits for LLM-generated SQL.
     max_sql_rows: int = 500
     max_result_chars: int = 8000

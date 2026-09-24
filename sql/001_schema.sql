@@ -50,7 +50,9 @@ CREATE TABLE doc_chunks (
     section     TEXT,                   -- '3.2'
     content     TEXT NOT NULL,
     token_count INT,
-    embedding   vector(384)             -- all-MiniLM-L6-v2
+    embedding   vector(384),            -- all-MiniLM-L6-v2
+    -- Keyword half of hybrid search. See sql/003_fulltext.sql for why.
+    content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
 );
 
 -- HNSW index for cosine similarity. Build it AFTER bulk-loading for speed.

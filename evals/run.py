@@ -185,6 +185,65 @@ def to_markdown(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
+RETRIEVAL_MODES = ("vector", "keyword", "hybrid")
+
+
+def run_retrieval_only(cases: list[dict], top_ks=(3, 5, 10)) -> int:
+    """Compare retrieval strategies. No API calls, so this costs nothing.
+
+    Retrieval is the half of a RAG system you can tune for free. Do it before
+    spending anything on the agent: a fix that does not improve recall will not
+    improve answers either.
+    """
+    from src import runtime
+    from src.tools.search_documents import search_docs
+
+    scored = [c for c in cases if c.get("expected_chunks")]
+    if not scored:
+        print("No cases have expected_chunks; nothing to measure.")
+        return 1
+
+    print(f"{len(scored)} cases with expected chunks, no API calls\n")
+    results = []
+    for mode in RETRIEVAL_MODES:
+        largest = max(top_ks)
+        retrieved = []
+        with runtime.override(search_mode=mode):
+            for case in scored:
+                hits = search_docs(case["question"], top_k=largest)
+                retrieved.append(([h.citation for h in hits], case["expected_chunks"]))
+        row = {"mode": mode, "mrr": metrics.mean([metrics.mrr(g, e) for g, e in retrieved])}
+        for k in top_ks:
+            row[f"recall@{k}"] = metrics.mean(
+                [metrics.recall_at_k(g, e, k) for g, e in retrieved]
+            )
+        row["_detail"] = retrieved
+        results.append(row)
+
+    header = "| mode | " + " | ".join(f"recall@{k}" for k in top_ks) + " | MRR |"
+    print(header)
+    print("|---" * (len(top_ks) + 2) + "|")
+    best = max(results, key=lambda r: (r[f"recall@{top_ks[0]}"], r["mrr"]))
+    for r in results:
+        cells = [r["mode"]] + [f"{r[f'recall@{k}']:.2f}" for k in top_ks] + [f"{r['mrr']:.3f}"]
+        if r is best:
+            cells = [f"**{c}**" for c in cells]
+        print("| " + " | ".join(cells) + " |")
+
+    # Per-case ranks, so a regression is attributable rather than just visible.
+    print(f"\n{'case':<18}" + "".join(f"{m:>10}" for m in RETRIEVAL_MODES))
+    for i, case in enumerate(scored):
+        ranks = []
+        for r in results:
+            got, exp = r["_detail"][i]
+            rank = next((j + 1 for j, g in enumerate(got) if g in exp), None)
+            ranks.append(str(rank) if rank else "-")
+        print(f"{case['id']:<18}" + "".join(f"{x:>10}" for x in ranks))
+
+    print(f"\nBest: {best['mode']}")
+    return 0
+
+
 def verify_golden_set(cases: list[dict]) -> int:
     """Execute every reference_sql and report. No API calls, so this is free.
 
@@ -241,6 +300,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="estimate cost, call nothing")
     parser.add_argument("--verify", action="store_true",
                         help="check every reference_sql executes; no API calls, no cost")
+    parser.add_argument("--retrieval-only", action="store_true",
+                        help="compare vector/keyword/hybrid retrieval; no API calls, no cost")
     parser.add_argument("--yes", action="store_true", help="skip the cost confirmation")
     args = parser.parse_args()
 
@@ -250,6 +311,9 @@ def main() -> None:
 
     if args.verify:
         raise SystemExit(verify_golden_set(cases))
+
+    if args.retrieval_only:
+        raise SystemExit(run_retrieval_only(cases))
 
     configs = SWEEP_CONFIGS if args.sweep else [{
         "chunk_size": cfg.chunk_size, "chunk_overlap": cfg.chunk_overlap, "top_k": cfg.top_k,

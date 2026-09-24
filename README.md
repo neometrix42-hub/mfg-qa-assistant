@@ -12,15 +12,45 @@ across 6 retrieval configurations.
 
 ## Results
 
-<!-- REPLACE THIS SECTION WITH REAL NUMBERS FROM `python -m evals.run --sweep`.
-     Results go ABOVE architecture and setup. Numbers above the fold.
-     This table is the single most important thing in the repo. -->
+### Retrieval: vector vs keyword vs hybrid
 
-| config | recall@5 | MRR | sql_match | contains | faithful | p95 ms | $/query |
-|---|---|---|---|---|---|---|---|
-| _pending_ | – | – | – | – | – | – | – |
+Measured over 15 golden-set cases with known correct chunks.
+Reproduce with `python -m evals.run --retrieval-only` (no API calls, no cost).
 
-Golden set: 50 questions (20 document, 20 data, 10 hybrid). See [`evals/golden_set.yaml`](evals/golden_set.yaml).
+| mode | recall@3 | recall@5 | recall@10 | MRR |
+|---|---|---|---|---|
+| vector only | 0.80 | 0.87 | 0.93 | **0.758** |
+| keyword only | 0.87 | 0.93 | 0.93 | 0.691 |
+| **hybrid (RRF)** | **0.87** | **0.93** | **1.00** | 0.746 |
+
+**Hybrid is the default.** It wins recall at every depth and reaches perfect
+recall@10, at the cost of 0.012 MRR — it occasionally demotes an easy rank-1
+result to rank 2. With `top_k=5` the model sees the chunk either way, so recall
+is the metric that decides the answer and MRR is the one to trade.
+
+**What hybrid fixed, and what it cost:**
+
+| case | vector | hybrid | |
+|---|---|---|---|
+| `hybrid_001` "Part P-4417 failed a flatness check…" | not in top 10 | **4** | ✅ Part numbers are exact tokens with no useful embedding |
+| `doc_004` "CMM that fails its acceptance criteria" | 4 | **3** | ✅ Was matching the FAI "Acceptance" section instead |
+| `hybrid_003` non-conformance records retention | 8 | 9 | ➖ Near-miss either way |
+| `doc_003` calibration certificate retention | **1** | 2 | ⚠️ Demoted by fusion |
+
+One tuning step mattered: `ts_rank_cd` ignores document length by default, so a
+long chunk mentioning a term in passing outranked a short chunk entirely about
+it. Adding length normalisation moved recall@10 from 0.93 to 1.00.
+
+### Agent quality
+
+Pending — needs an `ANTHROPIC_API_KEY`. Run `python -m evals.run --sweep`.
+
+| config | sql_match | contains | faithful | p95 ms | $/query |
+|---|---|---|---|---|---|
+| _pending_ | – | – | – | – | – |
+
+Golden set: 24 cases so far (14 document, 7 data, 3 hybrid), including two
+deliberately unanswerable ones. See [`evals/golden_set.yaml`](evals/golden_set.yaml).
 
 ---
 

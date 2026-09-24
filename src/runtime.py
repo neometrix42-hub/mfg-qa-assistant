@@ -80,3 +80,7 @@ def override(**values) -> Iterator[None]:
 
 def top_k() -> int:
     return int(_overrides.get().get("top_k", cfg.top_k))
+
+
+def search_mode() -> str:
+    return str(_overrides.get().get("search_mode", cfg.search_mode))
