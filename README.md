@@ -107,26 +107,74 @@ model corrects its own SQL.
 
 ## Setup
 
+Requires Python 3.11+ and Docker.
+
 ```bash
-docker compose up -d          # Postgres + pgvector, schema applied automatically
-cp .env.example .env          # then add your ANTHROPIC_API_KEY
 pip install -e ".[dev]"
+cp .env.example .env          # add your ANTHROPIC_API_KEY for the agent
+docker compose up -d          # Postgres + pgvector on :5433, schema applied automatically
 python -m src.db              # should print OK
 ```
 
-Ingest:
+Load the data and build the search index:
 
 ```bash
-python -m src.ingest.load_measurements    # public dataset -> parts/runs/measurements
-python -m src.ingest.chunk                # SOPs -> chunks -> embeddings -> doc_chunks
+python -m src.ingest.load_measurements   # generates 8 parts / ~1,200 runs / ~3,650 measurements
+python -m src.ingest.chunk               # SOPs -> chunks -> embeddings -> doc_chunks
 ```
 
-Run:
+Both are idempotent — rerun either after changing the generator or the documents.
+
+### Try it without an API key
+
+Retrieval is the half of a RAG system you can develop for free. These commands
+touch no paid API:
+
+```bash
+python -m evals.run --retrieval-only   # the results table above, reproduced
+python -m src.tools.search_documents   # same three questions, vector vs keyword vs hybrid
+python -m evals.run --verify           # checks every golden-set reference_sql executes
+python -m pytest tests/ -q             # 64 tests
+```
+
+### With an API key
 
 ```bash
 python -m src.agent "How often must the CMM be calibrated?"
+python -m src.agent "Which machine has the worst failure rate, and what does the SOP say?"
 streamlit run src/ui.py
+python -m evals.run --sweep            # full agent eval; prints a cost estimate first
+uvicorn src.api:app --reload           # HTTP API on :8000
 ```
+
+`--sweep` shows the estimated spend and asks before calling anything. Setting
+`JUDGE_MODEL=claude-haiku-4-5` in `.env` cuts the cost of the faithfulness judge.
+
+### Day to day
+
+The database runs in Docker and does not start itself:
+
+```bash
+docker compose up -d     # after a reboot
+docker compose down      # stop it; data persists in the named volume
+docker compose down -v   # stop AND wipe the data, forcing a clean reingest
+```
+
+### Configuration
+
+Everything tunable lives in `.env` and is read by [`src/config.py`](src/config.py):
+
+| Variable | Default | Effect |
+|---|---|---|
+| `SEARCH_MODE` | `hybrid` | `vector`, `keyword` or `hybrid` |
+| `TOP_K` | `5` | Chunks passed to the model |
+| `CHUNK_SIZE` | `256` | Tokens per chunk. **Do not exceed 256** — the embedding model truncates there |
+| `CHUNK_OVERLAP` | `32` | Token overlap between chunks |
+| `RRF_K` | `60` | Reciprocal Rank Fusion constant |
+| `CLAUDE_MODEL` | `claude-opus-5` | Model for the agent |
+
+Changing `CHUNK_SIZE` or `CHUNK_OVERLAP` requires rerunning `python -m src.ingest.chunk`,
+since the embeddings are rebuilt from the chunks.
 
 ---
 
