@@ -1,12 +1,14 @@
 # Manufacturing QA Assistant
 
 A question-answering system over manufacturing inspection data and quality documents.
-Claude picks between semantic search over SOPs and generated SQL over a measurements
-database, then answers with citations. Evaluated against a 50-question golden set
-across 6 retrieval configurations.
+Claude chooses between hybrid search across quality procedures and generated SQL over a
+measurements database, then answers with citations. Retrieval is measured against a
+golden set: hybrid search reaches **recall@10 of 1.00**, against 0.93 for vector search
+alone.
 
-> **Status: in progress.** Scaffold complete; implementation underway.
-> See [PROJECT_SPEC.md](PROJECT_SPEC.md) for the full design and build plan.
+> **Status:** ingestion, hybrid retrieval and the eval harness run end to end, with 64
+> tests passing. Agent-level evaluation needs an `ANTHROPIC_API_KEY`; deployment is
+> pending. See [PROJECT_SPEC.md](PROJECT_SPEC.md) for the full design.
 
 ---
 
