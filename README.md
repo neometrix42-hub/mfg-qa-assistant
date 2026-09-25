@@ -110,10 +110,25 @@ model corrects its own SQL.
 Requires Python 3.11+ and Docker.
 
 ```bash
+python -m venv .venv                  # create an isolated environment
+.\.venv\Scripts\Activate.ps1          # Windows PowerShell
+# source .venv/bin/activate           # macOS / Linux
+
 pip install -e ".[dev]"
-cp .env.example .env          # add your ANTHROPIC_API_KEY for the agent
-docker compose up -d          # Postgres + pgvector on :5433, schema applied automatically
-python -m src.db              # should print OK
+cp .env.example .env                  # add your ANTHROPIC_API_KEY for the agent
+docker compose up -d                  # Postgres + pgvector on :5433, schema applied automatically
+python -m src.db                      # should print OK
+```
+
+Use the virtual environment. Without it, `python` resolves to whichever
+interpreter happens to be first on `PATH`, which on Windows is frequently not
+the one the dependencies were installed into.
+
+If activation is blocked by execution policy, call the interpreter directly —
+it needs no activation:
+
+```bash
+.\.venv\Scripts\python.exe -m src.db
 ```
 
 Load the data and build the search index:
